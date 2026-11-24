@@ -1,0 +1,241 @@
+trigger:
+  branches:
+    include:
+    - refs/heads/master
+variables:
+- name: ARTIFACT_NAME
+  value: 'pacts'
+- name: BUILD_URL
+  value: '$(Build.BuildUri)'
+- name: BUILD_SOURCE_VERSION
+  value: $(Build.SourceVersion)
+- name: CONSUMER
+  value: 'Consumer'
+- name: CONSUMER_SOURCE_BRANCH
+  value: "$[replace(variables['Build.SourceBranch'], 'refs/heads/', '')]"
+- name: PACT_BROKER_BASE_URL
+  value: 'https://launch-pact-broker-dev-eastus-001.azurewebsites.net/'
+- name: PACT_BROKER_PASSWORD
+  value: ''
+- name: PACT_BROKER_USERNAME
+  value: ''
+- name: PROVIDER
+  value: 'DateTimeProvider'
+- name: PROJECT_NAME
+  value: 'PactNet.Consumer.Tests'
+stages:
+- stage: DotNet_Build
+  jobs:
+  - job: dotnet_build_job
+    displayName: dot net build and test
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - task: 6d15af64-176c-496d-b583-fd2ae21d4df4@1
+      inputs:
+        repository: self
+        clean: true
+        fetchTags: false
+    - task: DotNetCoreCLI@2
+      displayName: dotnet restore
+      inputs:
+        command: restore
+    - task: DotNetCoreCLI@2
+      displayName: dotnet build
+    - task: DotNetCoreCLI@2
+      displayName: dotnet test
+      inputs:
+        command: test
+- stage: Publish_Pact
+  dependsOn:
+  - DotNet_Build
+  jobs:
+  - job: publish_pact_job
+    displayName: publish pact
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - task: 6d15af64-176c-496d-b583-fd2ae21d4df4@1
+      inputs:
+        repository: self
+        clean: true
+        fetchTags: false
+    - task: Bash@3
+      displayName: 'echo list directory'
+      inputs:
+        targetType: inline
+        script: >+
+          echo 'System.ArtifactsDirectory' echo '$System.ArtifactsDirectory'
+
+          ls '$(System.ArtifactsDirectory)'
+
+          ls '$(System.ArtifactsDirectory)/pacts'
+
+          echo '============= Build.ArtifactStagingDirectory ================' echo '$(Build.ArtifactStagingDirectory)'
+
+          ls '$(Build.ArtifactStagingDirectory)'
+
+          ls '$(Build.ArtifactStagingDirectory)/$(ARTIFACT_NAME)'
+
+          ls '$(Build.ArtifactStagingDirectory)/pacts'
+
+          echo '=============== Build.SourcesDirectory ==================' echo '$(Build.SourcesDirectory)'
+
+          ls '$(Build.SourcesDirectory)'
+
+          echo '=============== System.DefaultWorkingDirectory =================='
+
+          echo System.DefaultWorkingDirectory is $(System.DefaultWorkingDirectory)
+
+          echo '=============== SourceDirectory/RepositoryName =================='
+
+          echo SourceDirectory/RepositoryName is $(Build.SourcesDirectory)/$(Build.Repository.Name)
+
+          ls '$(Build.SourcesDirectory)/$(Build.Repository.Name)'
+
+          echo 'PWD'
+
+          echo PWD: "$PWD"
+
+          ls "$PWD"
+
+    - task: Bash@3
+      displayName: 'echo parameters'
+      inputs:
+        targetType: inline
+        script: >2+
+
+          echo BUILD_URL is $BUILD_URL
+
+          echo PACT_BROKER_BASE_URL is $PACT_BROKER_BASE_URL
+
+          echo PACT_BROKER_PASSWORD is $PACT_BROKER_PASSWORD
+
+          echo PACT_BROKER_USERNAME is $PACT_BROKER_USERNAME
+
+          echo PACTICIPANT is $CONSUMER
+
+          echo PACTICIPANT_VERSION is $BUILD_SOURCE_VERSION
+
+          echo PACTICIPANT_BRANCH is $CONSUMER_SOURCE_BRANCH
+
+          echo PWD is $PWD
+
+          echo PACT_FILE_PATH is $(Build.SourcesDirectory)/$(PROJECT_NAME)/$(ARTIFACT_NAME)
+
+    - task: Bash@3
+      displayName: 'echo pipeline variables'
+      inputs:
+        targetType: inline
+        script: >+
+          echo ARTIFACT_NAME is $ARTIFACT_NAME
+
+          echo BUILD_URL is $BUILD_URL
+
+          echo PACT_BROKER_BASE_URL is $PACT_BROKER_BASE_URL
+
+          echo PACT_BROKER_PASSWORD is $PACT_BROKER_PASSWORD
+
+          echo PACT_BROKER_USERNAME is $PACT_BROKER_USERNAME
+
+    - task: Bash@3
+      displayName: 'set PACTICIPANT_VERSION as short hash'
+      inputs:
+        targetType: inline
+        script: >+
+          echo "##vso[task.setvariable variable=PACTICIPANT_VERSION;]$(git rev-parse --short $BUILD_SOURCE_VERSION)"
+
+    - task: Bash@3
+      displayName: 'echo dynamic variables'
+      inputs:
+        targetType: inline
+        script: >2+
+
+          echo PACTICIPANT_VERSION is $PACTICIPANT_VERSION
+
+    - task: Bash@3
+      displayName: 'publish pact'
+      inputs:
+        targetType: 'inline'
+        script: >-
+          echo 'pact broker publish pact'
+
+
+          docker run --rm  \
+                  -w $PWD \
+                  -v $(Build.SourcesDirectory):$PWD \
+                  -e $PACT_BROKER_BASE_URL \
+                  -e $PACT_BROKER_USERNAME \
+                  -e $PACT_BROKER_PASSWORD \
+                  pactfoundation/pact-cli:latest \
+                  publish \
+                    $(Build.SourcesDirectory)/$(PROJECT_NAME)/$(ARTIFACT_NAME) \
+                    --consumer-app-version $PACTICIPANT_VERSION \
+                    --branch $CONSUMER_SOURCE_BRANCH \
+                    --build-url $BUILD_URL \
+                    --broker-base-url $PACT_BROKER_BASE_URL \
+                    --broker-username $PACT_BROKER_USERNAME \
+                    --broker-password $PACT_BROKER_PASSWORD \
+                    --verbose true
+- stage: Can_I_Delpoy
+  dependsOn:
+  - Publish_Pact
+  jobs:
+  - job: can_i_deploy_job
+    displayName: can i deploy
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - task: 6d15af64-176c-496d-b583-fd2ae21d4df4@1
+      inputs:
+        repository: self
+        clean: true
+        fetchTags: false
+    - task: Bash@3
+      displayName: 'echo parameters'
+      inputs:
+        targetType: inline
+        script: >+
+          echo PACT_BROKER_BASE_URL is $PACT_BROKER_BASE_URL
+
+          echo PACT_BROKER_PASSWORD is $PACT_BROKER_PASSWORD
+
+          echo PACT_BROKER_USERNAME is $PACT_BROKER_USERNAME
+
+          echo PACTICIPANT is $CONSUMER
+
+          echo PACTICIPANT_VERSION is $BUILD_SOURCE_VERSION
+
+          echo PWD is $PWD
+
+    - task: Bash@3
+      displayName: 'echo pipeline variables'
+      inputs:
+        targetType: inline
+        script: >+
+          echo PACT_BROKER_BASE_URL is $PACT_BROKER_BASE_URL
+
+          echo PACT_BROKER_PASSWORD is $parameters.PACT_BROKER_PASSWORD
+
+          echo PACT_BROKER_USERNAME is $PACT_BROKER_USERNAME
+
+    - task: Bash@3
+      displayName: 'set PACTICIPANT_VERSION as short hash'
+      inputs:
+        targetType: inline
+        script: >+
+          echo "##vso[task.setvariable variable=PACTICIPANT_VERSION;]$(git rev-parse --short $BUILD_SOURCE_VERSION)"
+
+    - task: Bash@3
+      displayName: 'echo dynamic variables'
+      inputs:
+        targetType: inline
+        script: >+
+          echo PACTICIPANT_VERSION is $PACTICIPANT_VERSION
+
+    - task: Bash@3
+      displayName: 'Bash Script: can-i-deploy consumer'
+      inputs:
+        targetType: inline
+        script: "echo 'pact broker : can i deploy consumer'\ndocker run --rm  \\\n  -w $PWD \\\n -v $PWD:$PWD \\\n -e $PACT_BROKER_BASE_URL \\\n -e $PACT_BROKER_USERNAME \\\n -e $PACT_BROKER_PASSWORD \\\n  pactfoundation/pact-cli:latest \\\n  pact-broker can-i-deploy \\\n  --pacticipant $CONSUMER \\\n  --version $PACTICIPANT_VERSION \\\n  --broker-base-url $PACT_BROKER_BASE_URL \\\n  --broker-username $PACT_BROKER_USERNAME \\\n  --broker-password $PACT_BROKER_PASSWORD \\\n  --verbose true\n    "
+

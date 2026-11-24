@@ -1,0 +1,390 @@
+# Variable 'BUILD_URL' was defined in the Variables tab
+# Variable 'BUILD_VERSION' was defined in the Variables tab
+# Variable 'CONSUMER_BRANCH' was defined in the Variables tab
+# Variable 'CONSUMER_PULL_BRANCH' was defined in the Variables tab
+# Variable 'CONSUMER_PULL_VERSION_TAG' was defined in the Variables tab
+# Variable 'CONSUMER_VERSION_TAG' was defined in the Variables tab
+# Variable 'CONTRACT_REQUIRING_VERIFICATION_PUBLISHED_WEBHOOK_UUID' was defined in the Variables tab
+# Variable 'GIT_COMMIT_ID' was defined in the Variables tab
+# Variable 'PACT_BROKER_BASE_URL' was defined in the Variables tab
+# Variable 'PACT_BROKER_PASSWORD' was defined in the Variables tab
+# Variable 'PACT_BROKER_USERNAME' was defined in the Variables tab
+# Variable 'PACTICIPANT' was defined in the Variables tab
+# Variable 'PAT' was defined in the Variables tab
+# Variable 'PROVIDER_VERIFICATION_JOB_URL' was defined in the Variables tab
+# Variable Group 'ConsumerVariables' was defined in the Variables tab
+jobs:
+- job: Job_1
+  displayName: DotNet Job
+  pool:
+    vmImage: ubuntu-latest
+  steps:
+  - checkout: self
+    clean: true
+    fetchTags: false
+  - task: DotNetCoreCLI@2
+    displayName: dotnet restore
+    inputs:
+      command: restore
+  - task: DotNetCoreCLI@2
+    displayName: dotnet build
+  - task: DotNetCoreCLI@2
+    displayName: dotnet test
+    inputs:
+      command: test
+  - task: CopyFiles@2
+    displayName: 'Copy Files to: $(Build.ArtifactStagingDirectory)'
+    inputs:
+      SourceFolder: $(System.DefaultWorkingDirectory)/PactNet.Consumer.Tests/pacts
+      TargetFolder: $(Build.ArtifactStagingDirectory)
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish Artifact: pacts'
+    inputs:
+      ArtifactName: pacts
+- job: Job_2
+  displayName: Pact Job
+  dependsOn: Job_1
+  pool:
+    vmImage: ubuntu-latest
+  steps:
+  - checkout: self
+    clean: true
+    fetchTags: false
+  - task: DownloadBuildArtifacts@1
+    displayName: Download Build Artifacts
+    inputs:
+      artifactName: pacts
+      extractTars: false
+  - task: Bash@3
+    displayName: 'Bash Script: list directory'
+    inputs:
+      targetType: inline
+      script: >+
+        # Write your commands here
+
+        echo '================System.ArtifactsDirectory=================='
+
+        ls '$(System.ArtifactsDirectory)'
+
+        ls '$(System.ArtifactsDirectory)/pacts'
+
+
+        echo '================Build.ArtifactStagingDirectory=================='
+
+
+        ls '$(Build.ArtifactStagingDirectory)'
+
+        ls '$(Build.ArtifactStagingDirectory)/pacts'
+
+
+        echo '===============PWD==================='
+
+
+        echo PWD: "$PWD"
+
+        ls "$PWD"
+
+  - task: Bash@3
+    displayName: 'Bash Script: dynamic variables'
+    inputs:
+      targetType: inline
+      script: >+
+        # Write your commands here
+
+
+        echo "##vso[task.setvariable variable=SHORT_HASH;]$(git rev-parse --short HEAD)"
+
+
+        echo "##vso[task.setvariable variable=BUILD_SOURCE_VERSION;]$(git rev-parse --short $BUILD_SOURCEVERSION)"
+
+
+        echo "##vso[task.setvariable variable=CONSUMER_APP_VERSION;]$(git rev-parse --short $GIT_COMMIT_ID)"
+
+
+
+        echo "##vso[task.setvariable variable=PACT_FILE_PATH;]${PWD}/pacts"
+
+
+  - task: Bash@3
+    displayName: 'Bash Script: echo variables'
+    inputs:
+      targetType: inline
+      script: >-
+        # Write your commands here
+
+
+        echo '==============  variables ==========='
+
+
+        echo PACT_BROKER_BASE_URL is : "$PACT_BROKER_BASE_URL"
+
+
+        echo PACT_BROKER_PASSWORD is : "$PACT_BROKER_PASSWORD"
+
+
+        echo PACT_BROKER_USERNAME is : "$PACT_BROKER_USERNAME"
+
+
+        echo PACTICIPANT is : "$PACTICIPANT"
+
+
+        echo PAT is : "$PAT"
+
+
+        echo short hash is same as build source version
+
+
+        echo build source version is different from git commit hash
+
+
+        echo BUILD_SOURCE_VERSION is $BUILD_SOURCE_VERSION
+
+
+        echo SHORT_HASH is: $SHORT_HASH
+
+
+        echo GIT_COMMIT_ID is: $GIT_COMMIT_ID
+
+
+        echo CONSUMER_APP_VERSION is : $CONSUMER_APP_VERSION
+
+
+        echo CONSUMER_BRANCH is : $CONSUMER_BRANCH
+
+
+        echo CONSUMER_PULL_BRANCH is : $CONSUMER_PULL_BRANCH
+
+
+        echo CONSUMER_VERSION_TAG is : $CONSUMER_VERSION_TAG
+
+
+        echo PACT_FILE_PATH is : $PACT_FILE_PATH
+
+
+        echo BUILD_URL is : $BUILD_URL
+  - task: Bash@3
+    displayName: 'Bash Script: docker run publish pact'
+    inputs:
+      targetType: inline
+      script: >
+        # Write your commands here
+
+
+        echo 'publish pact '
+
+
+        docker run --rm  \
+         -w ${PWD} \
+         -v $(Build.ArtifactStagingDirectory):${PWD} \
+         -e $PACT_BROKER_BASE_URL \
+         -e $PACT_BROKER_USERNAME \
+         -e $PACT_BROKER_PASSWORD \
+          pactfoundation/pact-cli:latest \
+          publish \
+          $PACT_FILE_PATH \
+          --broker-base-url $PACT_BROKER_BASE_URL \
+          --consumer-app-version $CONSUMER_APP_VERSION \
+          --branch $CONSUMER_PULL_BRANCH \
+          --verbose
+
+
+        # for connecting to Pact Broker running on localhost
+
+        # --network="host"
+  - task: guid-generator@2
+    displayName: 'GUID Generator: REMOVE'
+    enabled: False
+    inputs:
+      VariableName: UUID
+      GuidToUpper: true
+  - task: Bash@3
+    displayName: 'Bash Script: create or update webhook'
+    inputs:
+      targetType: inline
+      script: >-
+        # Write your commands here
+
+
+        echo '============================================pact-broker create-or-update-webhook========================================='
+
+
+        echo ================== UUID $CONTRACT_REQUIRING_VERIFICATION_PUBLISHED_WEBHOOK_UUID ======================
+
+
+        docker run --rm  \
+         -v ${PWD}:${PWD} \
+         -e $PACT_BROKER_BASE_URL \
+         -e $PACT_BROKER_USERNAME \
+         -e $PACT_BROKER_PASSWORD \
+          pactfoundation/pact-cli:latest \
+        pact-broker create-or-update-webhook $PROVIDER_VERIFICATION_JOB_URL \
+         --uuid $CONTRACT_REQUIRING_VERIFICATION_PUBLISHED_WEBHOOK_UUID \
+        --header 'Content-Type: application/json' \
+
+        --header 'Accept: application/json' \
+
+        --header 'Authorization: Basic bXJhZ25pOmFqY3I2NHJ6andtZnc3bW95YTdiNzVlbmg0YjZicG9wdnBrejJ3Z3VwcW4zenVseGd3amE=' \
+
+        --data '{
+              "resources": {
+                "repositories": {
+                  "self": {
+                    "refName": "refs/heads/master"
+                  }
+                }
+              },
+              "templateParameters": {
+                "PACT_URL": "${pactbroker.pactUrl}"
+              }
+        }' \
+         --request POST \
+         --consumer $PACTICIPANT \
+         --broker-base-url $PACT_BROKER_BASE_URL \
+         --broker-username $PACT_BROKER_USERNAME \
+         --broker-password $PACT_BROKER_PASSWORD \
+         --contract_requiring_verification_published \
+          --verbose true
+  - task: Bash@3
+    displayName: 'Bash Script: test webhook'
+    inputs:
+      targetType: inline
+      script: >-
+        # Write your commands here
+
+
+        echo '============================================pact-broker test-webhook ========================================='
+
+
+        echo ================== UUID $CONTRACT_REQUIRING_VERIFICATION_PUBLISHED_WEBHOOK_UUID ======================
+
+
+        docker run --rm  \
+         -v ${PWD}:${PWD} \
+         -e $PACT_BROKER_BASE_URL \
+         -e $PACT_BROKER_USERNAME \
+         -e $PACT_BROKER_PASSWORD \
+          pactfoundation/pact-cli:latest \
+        pact-broker test-webhook \
+          --uuid $CONTRACT_REQUIRING_VERIFICATION_PUBLISHED_WEBHOOK_UUID \
+          --broker-base-url $PACT_BROKER_BASE_URL \
+          --broker-username $PACT_BROKER_USERNAME \
+          --broker-password $PACT_BROKER_PASSWORD \
+          --verbose true
+  - task: Bash@3
+    displayName: 'Bash Script: can-i-deploy consumer'
+    inputs:
+      targetType: inline
+      script: >-
+        # Write your commands here
+
+
+        echo 'pact broker : can i deploy consumer'
+
+
+        docker run --rm  \
+         -e $PACT_BROKER_BASE_URL \
+         -e $PACT_BROKER_USERNAME \
+         -e $PACT_BROKER_PASSWORD \
+          pactfoundation/pact-cli:latest \
+          pact-broker can-i-deploy \
+          --pacticipant $PACTICIPANT \
+          --version  $CONSUMER_APP_VERSION \
+          --broker-base-url $PACT_BROKER_BASE_URL \
+           #--network="host"
+  - task: Bash@3
+    displayName: 'Bash Script: just to fail the job'
+    inputs:
+      targetType: inline
+      script: >-
+        # Write your commands here
+
+
+        test: "test"
+- job: Job_3
+  displayName: 'Sample job: excluded : just for test'
+  condition: eq(variables['Build.SourceBranch'], 'XshouldneverrunX')
+  pool:
+    vmImage: ubuntu-latest
+  steps:
+  - checkout: self
+    clean: true
+    fetchTags: false
+  - task: Bash@3
+    displayName: 'Bash Script: replace function'
+    inputs:
+      targetType: inline
+      script: >2
+
+        echo CONSUMER_BRANCH: $CONSUMER_BRANCH
+
+
+        echo CONSUMER_VERSION: $CONSUMER_VERSION
+
+
+        echo BUILD_URL : $BUILD_URL
+  - task: Bash@3
+    displayName: 'Bash Script: test local variables'
+    inputs:
+      targetType: inline
+      script: >
+        # Write your commands here
+
+
+        echo '---------------------- local variable --------------------------'
+
+        echo 'before change'
+
+        echo local is $(local)
+
+
+        echo 'after change in same task'
+
+        echo "##vso[task.setvariable variable=local;]'local changed'"
+
+
+        echo 'the change is not reflected in same task'
+
+        echo local is $(local)
+  - task: Bash@3
+    displayName: 'Bash Script: test dynamic variables copy'
+    inputs:
+      targetType: inline
+      script: >
+        # Write your commands here
+
+
+        echo "##vso[task.setvariable variable=CONSUMER_APP_VERSION;]$(git rev-parse --short $BUILD_SOURCEVERSION)"
+
+
+        #echo "##vso[task.setvariable variable=CONSUMER_BRANCH;]$(Build.SourceBranch)"
+
+
+        #echo "##vso[task.setvariable variable=CONSUMER_VERSION_TAG;]$(Build.SourceBranch)"
+
+
+        echo "##vso[task.setvariable variable=CONSUMER_BRANCH_NAME;]$(Build.SourceBranchName)"
+
+
+        echo "##vso[task.setvariable variable=PACT_FILE_PATH;]${PWD}/pacts"
+
+
+
+        echo 'the change is not reflected in same task'
+
+
+        echo CONSUMER_APP_VERSION: $CONSUMER_APP_VERSION
+  - task: Bash@3
+    displayName: 'Bash Script: echo variables'
+    inputs:
+      targetType: inline
+      script: "# Write your commands here\n\necho '---------------------- local variable in different task --------------------------'\necho local is $(local)\n\necho '============== dynamic variables ==========='\n\necho CONSUMER_APP_VERSION: $CONSUMER_APP_VERSION\n\necho CONSUMER_BRANCH: $CONSUMER_BRANCH\n\necho CONSUMER_VERSION_TAG: $CONSUMER_VERSION_TAG\n\necho CONSUMER_BRANCH_NAME: $CONSUMER_BRANCH_NAME \n\necho PACT_FILE_PATH: $PACT_FILE_PATH\n\necho CONSUMER_VERSION : $CONSUMER_VERSION"
+  - task: Bash@3
+    displayName: 'Bash Script: echo variables copy'
+    inputs:
+      targetType: inline
+      script: >-
+        # Write your commands here
+
+
+        test: "test"
+...

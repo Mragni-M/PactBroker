@@ -1,0 +1,58 @@
+parameters:
+- name: PACT_URL
+  displayName: Pact Url
+  type: string
+  default: ''
+- name: BUILD_URL
+  displayName: build url
+  type: string
+  default: ''
+trigger:
+  enabled: false
+variables:
+- name: PROVIDER_VERSION
+- group: PactVariables
+stages:
+- stage: __default
+  jobs:
+  - job: Job_1
+    displayName: Agent job 1
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - task: 6d15af64-176c-496d-b583-fd2ae21d4df4@1
+      inputs:
+        repository: self
+        clean: true
+        fetchTags: false
+    - task: Bash@3
+      displayName: 'Bash Script: declare pact_url variable'
+      inputs:
+        targetType: inline
+        script: echo "##vso[task.setvariable variable=PACT_URL;]"
+    - task: Bash@3
+      displayName: 'Bash Script: declare dynamic variable'
+      inputs:
+        targetType: inline
+        script: >2-
+
+          echo "##vso[task.setvariable variable=PROVIDER_APP_VERSION;]$(git rev-parse --short $BUILD_SOURCEVERSION)"
+    - task: Bash@3
+      displayName: 'Bash Script: echo variable'
+      inputs:
+        targetType: inline
+        script: "echo '============== dynamic variables ==========='\necho PACTICIPANT: $PACTICIPANT\necho PROVIDER_BRANCH: $PROVIDER_BRANCH\necho PROVIDER_APP_VERSION: $(PROVIDER_APP_VERSION)\necho PROVIDER_BUILD_URL: $PROVIDER_BUILD_URL\necho PACT URL from dynamic var: $PACT_URL\necho PACT URL from parent pipeline: \necho BUILD URL from parent pipeline: "
+    - task: DotNetCoreCLI@2
+      displayName: dotnet restore
+      inputs:
+        command: restore
+    - task: DotNetCoreCLI@2
+      displayName: dotnet build
+      inputs:
+        command: build
+    - task: DotNetCoreCLI@2
+      displayName: dotnet test PactNet.Provider.Test
+      inputs:
+        command: test
+        projects: PactNet.Provider.Test
+
